@@ -1,0 +1,13 @@
+__pycache__/
+
+data/
+flowpacker/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environments
+.env
+.venv
+env/
+venv/
