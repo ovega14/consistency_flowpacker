@@ -16,6 +16,41 @@ from dataset import get_consistency_dataloader
 from util import wrap, get_aa_onehot_and_dihedral, update_ema
 
 
+def load_teacher_config(config_path='config/training/vf.yaml'):
+    """Loads config for consistency model."""
+    config = load_config(config_path)
+    return config
+
+
+def build_consistency_model(config, device):
+    """Build EquiformerV2 and wrap in ConsistencyModel."""
+    equiformer = EquiformerV2(
+        num_layers=config.model.num_layers,
+        lmax_list=config.model.lmax_list,
+        mmax_list=config.model.mmax_list,
+        sphere_channels=config.model.sphere_channels,
+        attn_hidden_channels=config.model.attn_hidden_channels,
+        num_heads=config.model.num_heads,
+        attn_alpha_channels=config.model.attn_alpha_channels,
+        attn_value_channels=config.model.attn_value_channels,
+        ffn_hidden_channels=config.model.ffn_hidden_channels,
+        node_feature_in=config.model.node_feature_in,
+        edge_feature_in=config.model.edge_feature_in,
+        edge_channels=config.model.edge_channels,
+        share_atom_edge_embedding=config.model.share_atom_edge_embedding,
+        use_atom_edge_embedding=config.model.use_atom_edge_embedding,
+        attn_activation=config.model.attn_activation,
+        ffn_activation=config.model.ffn_activation,
+        use_gate_act=config.model.use_gate_act,
+        use_grid_mlp=config.model.use_grid_mlp,
+        weight_init=config.model.weight_init,
+        norm_type=config.model.norm_type,
+    ).to(device)
+ 
+    model = ConsistencyModel(equiformer, config).to(device)
+    return model
+
+
 def train_step(batch_dict, t_range, online_model, ema_model, ema_mu, optimizer, device):
     """Executes a single step of consistency distillation training."""
     for k in batch_dict:
@@ -54,14 +89,14 @@ def train_step(batch_dict, t_range, online_model, ema_model, ema_mu, optimizer, 
 def train(
     traj_dir: str = '../flowpacker/samples/traj-all/run_1',
     config_path: str = '/u/octavio5/projects/consistency_flowpacker/flowpacker/config/training/vf.yaml',
-    ckpt_path: str= '../flowpacker/checkpoints/bc40.pth',
+    ckpt_path: str = '../flowpacker/checkpoints/bc40.pth',
     epochs: int = 100,
     batch_size: int = 2,
     lr: float = 1e-4,
     ema_mu: float = 0.95,
     save_interval: int = 10,
-    save_dir: str= '../checkpoints/consistency',
-    model_type: str= 'MPConsistencyModel'
+    save_dir: str = '../checkpoints/consistency',
+    model_type: str = 'MPConsistencyModel'
 ):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
@@ -106,7 +141,7 @@ def train(
             loss = train_step(batch_dict, t_range, online_model, ema_model, ema_mu, optimizer, device)
             total_loss += loss
         scheduler.step()
-        avg_loss = total_loss / len(dataloader)
+        avg_loss = total_loss / len(loader)
         losses.append(avg_loss)
         print(f'Epoch {epoch+1}/{epochs}: loss={avg_loss:.4f}, lr={scheduler.get_last_lr()[0]:.2e}')
 
