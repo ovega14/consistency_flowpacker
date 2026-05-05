@@ -152,6 +152,7 @@ def collate_fn(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
 
 def get_consistency_dataloader(
     traj_dir: str,
+    device: torch.device, 
     batch_size: int = 4,
     shuffle: bool = True,
     num_workers: int = 0,
