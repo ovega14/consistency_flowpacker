@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["src"]
+
+[project]
+name = "consistency_flowpacker"
+version = "0.1.0"
+description = "Riemannian consistency distillation for FlowPacker."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Sonika Potnis", email = "spotnis2@illinois.edu"},
+    {name = "Smriti Srinivasan", email = "smriti.srinivasan109@gmail.com"}
+    {name = "Octavio Vega", email = "vega00087@gmail.com"},
+]
+dependencies = [
+    "numpy>=1.24,<2",
+    "torch>=2.0.0",
+    "torch_cluster",
+    "easydict",
+    "yaml",
+    "pathlib",
+    "copy",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+
+[project.urls]
+Repository = "https://github.com/ovega14/consistency_flowpacker"
