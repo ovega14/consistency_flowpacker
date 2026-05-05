@@ -68,16 +68,11 @@ def train(
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device: {device}')
 
-    config = edict(yaml.load(open(config_path), Loader=yaml.FullLoader))
-
     # Build models
     online_model, ema_model = make_consistency_models(model_type, device, config_path)
 
     # Dataloader
     loader = get_consistency_dataloader(traj_dir, device=device, batch_size=batch_size, shuffle=True, num_workers=0)
-
-    #t_range = torch.linspace(0, 1.0 - config.sample.eps, config.sample.num_steps).to(device)
-    t_range = torch.linspace(0, 1.0 - 2e-3, 10).to(device)
 
     optimizer = torch.optim.AdamW(online_model.parameters(), lr=lr, weight_decay=1e-12)
     #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
@@ -85,6 +80,7 @@ def train(
 
     Path(save_dir).mkdir(parents=True, exist_ok=True)
 
+    t_range = torch.linspace(0, 1.0 - 2e-3, 10).to(device)
     losses = []
     for epoch in tqdm.tqdm(range(epochs)):
         online_model.train()
