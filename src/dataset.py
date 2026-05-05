@@ -166,5 +166,5 @@ def get_consistency_dataloader(
         shuffle=shuffle,
         num_workers=num_workers,
         collate_fn=collate_fn,
-        generator=torch.Generator(device=device)
+        generator=torch.Generator(device='cpu')
     )

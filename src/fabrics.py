@@ -3,12 +3,14 @@ import copy
 import torch
 from torch.optim.lr_scheduler import _LRScheduler
 
+import sys
 sys.path.insert(0, '../flowpacker')
 from utils.loader import load_config
 
-from . import schedulers
-from . import consistency
-from .consistency import EquiformerConsistencyModel
+# Local imports
+import schedulers
+import consistency
+from consistency import EquiformerConsistencyModel
 
 
 def make_scheduler(sched_type: str, optimizer, **config) -> _LRScheduler:
@@ -23,7 +25,8 @@ def make_scheduler(sched_type: str, optimizer, **config) -> _LRScheduler:
 def make_consistency_models(
     model_type: str,
     device: torch.device,
-    config_path: str = 'config/training/vf.yaml'
+    config_path: str = '../flowpacker/config/training/vf.yaml',
+    ckpt_path: str= '../flowpacker/checkpoints/bc40.pth',    
 ) -> tuple[torch.nn.Module, torch.nn.Module]:
     """
     Prepares the online and EMA models for consistency distillation.
