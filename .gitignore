@@ -5,6 +5,7 @@ checkpoints/
 data/
 flowpacker/
 riemannian-consistency-model/
+scripts/logs/
 
 # Jupyter Notebook
 .ipynb_checkpoints
