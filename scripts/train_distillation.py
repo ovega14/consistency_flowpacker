@@ -80,7 +80,8 @@ def train(
     t_range = torch.linspace(0, 1.0 - 2e-3, 10).to(device)
 
     optimizer = torch.optim.AdamW(online_model.parameters(), lr=lr, weight_decay=1e-12)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    scheduler = make_scheduler('ShadowScheduler', optimizer, T_max=epochs)
 
     Path(save_dir).mkdir(parents=True, exist_ok=True)
 
