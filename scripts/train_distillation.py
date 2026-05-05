@@ -5,6 +5,7 @@ import numpy as np
 
 import yaml
 import copy
+import argparse
 import tqdm.auto as tqdm
 from easydict import EasyDict as edict
 from pathlib import Path
@@ -52,49 +53,39 @@ def train_step(batch_dict, t_range, online_model, ema_model, ema_mu, optimizer, 
     return loss.item()
 
 
-def train(
-    traj_dir: str = '../flowpacker/samples/traj-all/run_1',
-    config_path: str = '/u/octavio5/projects/consistency_flowpacker/flowpacker/config/training/vf.yaml',
-    ckpt_path: str = '../flowpacker/checkpoints/bc40.pth',
-    epochs: int = 100,
-    batch_size: int = 2,
-    lr: float = 1e-4,
-    ema_mu: float = 0.95,
-    save_interval: int = 10,
-    save_dir: str = '../checkpoints/consistency',
-    model_type: str = 'MPConsistencyModel'
-) -> tuple[torch.nn.Module, torch.nn.Module, list[float]]:
+def train(args):
     """Runs the full consistency distillation training loop."""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device: {device}')
 
-    # Build models
-    online_model, ema_model = make_consistency_models(model_type, device, config_path)
+    online_model, ema_model = make_consistency_models(args.model_type, device, args.config_path)
 
-    # Dataloader
-    loader = get_consistency_dataloader(traj_dir, device=device, batch_size=batch_size, shuffle=True, num_workers=0)
-
-    optimizer = torch.optim.AdamW(online_model.parameters(), lr=lr, weight_decay=1e-12)
-    #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    scheduler = make_scheduler('ShadowScheduler', optimizer, T_max=epochs)
-
-    Path(save_dir).mkdir(parents=True, exist_ok=True)
+    loader = get_consistency_dataloader(
+        args.traj_dir, device=device, batch_size=args.batch_size,
+        shuffle=True, num_workers=0
+    )
 
     t_range = torch.linspace(0, 1.0 - 2e-3, 10).to(device)
+
+    optimizer = torch.optim.AdamW(online_model.parameters(), lr=args.lr, weight_decay=1e-12)
+    scheduler = make_scheduler(args.scheduler, optimizer, T_max=args.epochs)
+
+    Path(args.save_dir).mkdir(parents=True, exist_ok=True)
+
     losses = []
-    for epoch in tqdm.tqdm(range(epochs)):
+    for epoch in tqdm.tqdm(range(args.epochs)):
         online_model.train()
         total_loss = 0.
-        for batch_dict in tqdm.tqdm(loader, desc=f'Epoch {epoch+1}/{epochs}', leave=False):
-            loss = train_step(batch_dict, t_range, online_model, ema_model, ema_mu, optimizer, device)
+        for batch_dict in tqdm.tqdm(loader, desc=f'Epoch {epoch+1}/{args.epochs}', leave=False):
+            loss = train_step(batch_dict, t_range, online_model, ema_model, args.ema_mu, optimizer, device)
             total_loss += loss
         scheduler.step()
         avg_loss = total_loss / len(loader)
         losses.append(avg_loss)
-        print(f'Epoch {epoch+1}/{epochs}: loss={avg_loss:.4f}, lr={scheduler.get_last_lr()[0]:.2e}')
+        print(f'Epoch {epoch+1}/{args.epochs}: loss={avg_loss:.4f}, lr={scheduler.get_last_lr()[0]:.2e}')
 
-        if (epoch + 1) % save_interval == 0 or epoch == epochs - 1:
-            ckpt_out = Path(save_dir) / f"consistency_ep{epoch+1}.pt"
+        if (epoch + 1) % args.save_interval == 0 or epoch == args.epochs - 1:
+            ckpt_out = Path(args.save_dir) / f'consistency_ep{epoch+1}.pt'
             torch.save({
                 'epoch': epoch + 1,
                 'model': online_model.state_dict(),
@@ -102,21 +93,33 @@ def train(
                 'optimizer': optimizer.state_dict(),
                 'loss': avg_loss,
             }, ckpt_out)
-            print(f"  Saved {ckpt_out}")
+            print(f'  Saved {ckpt_out}')
 
     return online_model, ema_model, losses
 
 
 def main():
-    online_model, ema_model, losses = train(
-        traj_dir='../flowpacker/samples/traj-500/run_1',
-        epochs = 100,
-        batch_size = 64,
-        lr = 1e-3,
-        ema_mu = 0.99,
-        save_interval = 20,
-        model_type = 'ConditionedMPConsistencyModel'
-    )
+    parser = argparse.ArgumentParser(description='Train Riemannian consistency model via distillation')
+    parser.add_argument('--traj_dir', type=str,
+                        default='../flowpacker/samples/traj-500/run_1')
+    parser.add_argument('--config_path', type=str,
+                        default='/u/octavio5/projects/consistency_flowpacker/flowpacker/config/training/vf.yaml')
+    parser.add_argument('--ckpt_path', type=str,
+                        default='../flowpacker/checkpoints/bc40.pth')
+    parser.add_argument('--model_type', type=str,
+                        default='ConditionedMPConsistencyModel',
+                        choices=['EquiformerConsistencyModel', 'MPConsistencyModel', 'ConditionedMPConsistencyModel'])
+    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--ema_mu', type=float, default=0.99)
+    parser.add_argument('--scheduler', type=str, default='ShadowScheduler')
+    parser.add_argument('--save_interval', type=int, default=20)
+    parser.add_argument('--save_dir', type=str,
+                        default='../checkpoints/consistency')
+    args = parser.parse_args()
+
+    train(args)
 
 
 if __name__ == '__main__':
