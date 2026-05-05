@@ -1,7 +1,10 @@
 __pycache__/
 
+# Repositories and data
+checkpoints/
 data/
 flowpacker/
+riemannian-consistency-model/
 
 # Jupyter Notebook
 .ipynb_checkpoints
