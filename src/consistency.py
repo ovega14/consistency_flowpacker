@@ -1,4 +1,6 @@
 """Some pre-baked consistency models."""
+from typing import Any, Optional
+
 import math
 import torch
 from torch_cluster import knn_graph, radius_graph
@@ -12,6 +14,17 @@ sys.path.insert(0, '/u/octavio5/projects/consistency_flowpacker/flowpacker')
 from models.equiformer_v2.equiformer_v2 import EquiformerV2
 from dataset_cluster import get_edge_features
 from utils.sidechain_utils import Idealizer, get_bb_dihedral
+
+# riemannian-consistency-model imports
+sys.path.insert(0, '/u/octavio5/projects/consistency_flowpacker/riemannian-consistency-model')
+from training.networks import MPModel
+
+
+__all__ = [
+    'EquiformerConsistencyModel',
+    'MPConsistencyModel',
+    'ConditionedMPConsistencyModel'
+]
 
 
 if __name__ == '__main__':  # set device for testing
@@ -212,5 +225,108 @@ def _test_equiformer_consistency_model():
         print(f"{tv:.1f}   {model.c_skip(t).item():.4f}   {model.c_out(t).item():.4f}")
     
 
-if __name__ == '__main__':
-    _test_equiformer_consistency_model()
+if __name__ == '__main__': _test_equiformer_consistency_model()
+
+
+class MPConsistencyModel(torch.nn.Module):
+    """
+    Lightweight consistency model using MPModel as the student network.
+
+    Note: No protein conditioning is used — this model operates purely on 
+    chi angles.
+
+    Args:
+        in_channels (int): Number of input channels to the U-Net. Default: 4
+        sigma_min (float): Scale of the skip connection and output weights
+    """
+    def __init__(self, in_channels: int = 4, sigma_min: float = 0.002):
+        super().__init__()
+        self.sigma_min = sigma_min
+        self.net = MPModel(in_channels=in_channels)
+
+    def c_skip(self, t: torch.Tensor) -> torch.Tensor:
+        return self.sigma_min**2 / ((t - 1)**2 + self.sigma_min**2)
+
+    def c_out(self, t: torch.Tensor) -> torch.Tensor:
+        return (self.sigma_min * (1 - t)) / (self.sigma_min**2 + (t - 1)**2)**0.5
+
+    def forward(self,
+        xt: torch.Tensor,
+        t: torch.Tensor,
+        batch_dict: Optional[dict[str, torch.Tensor] | Any] = None
+    ) -> torch.Tensor:
+        """
+        Forward pass of the consistency model.
+
+        Args:
+            xt (Tensor): [total_res, 4]
+            t (Tensor): [total_res, 1]
+            batch_dict (Any, optional): ignored (no protein conditioning)
+
+        Returns:
+            x1_pred (Tensor): Predicted x1
+        """
+        chi_mask = batch_dict['chi_mask']
+        t_scalar = t[:, 0]  # [total_res]
+
+        # MPModel expects [BS, 1, in_channels]
+        x_in = xt.unsqueeze(1)  # [total_res, 1, 4]
+        F_out = self.net(x_in, t_scalar)  # [total_res, 1, 4]
+        F_out = F_out.squeeze(1)  # [total_res, 4]
+
+        skip = self.c_skip(t)
+        out = self.c_out(t)
+
+        x1_pred = skip * xt + out * F_out
+        x1_pred = x1_pred * chi_mask
+        x1_pred = torch.remainder(x1_pred, 2 * math.pi)
+        return x1_pred
+
+
+class ConditionedMPConsistencyModel(MPConsistencyModel):
+    """
+    Protein-conditioned version of the MPConsistencyModel.
+
+    This model incorporates amino acid and backbone dihedral conditioning as
+    input, rather than just the chi angles.
+    """
+    def __init__(self,
+        chi_channels: int = 4,
+        aa_channels: int = 21,  # 20 known AA + 1 unknown
+        dihedral_channels: int = 6,
+        sigma_min: float = 0.002
+    ):
+        super().__init__()
+
+        self.sigma_min = sigma_min
+        
+        in_channels = chi_channels + aa_channels + dihedral_channels  # 31
+        self.net = MPModel(in_channels=in_channels)
+        self.chi_channels = chi_channels
+
+    def forward(self, xt, t, batch_dict):
+        """Forward pass."""
+        chi_mask = batch_dict['chi_mask']
+        aa_onehot = batch_dict['aa_onehot']  # [n_res, 21]
+        bb_dihedral = batch_dict['bb_dihedral']  # [n_res, 3]
+        t_scalar = t[:, 0]
+
+        # sin/cos of bb_dihedral for periodicity
+        dihedral_sincos = torch.cat([
+            torch.sin(bb_dihedral), torch.cos(bb_dihedral)
+        ], dim=-1)  # [n_res, 6]
+
+        # concatenate all context with chi angles
+        x_in = torch.cat([xt, aa_onehot, dihedral_sincos], dim=-1)  # [n_res, 31]
+        x_in = x_in.unsqueeze(1)  # [n_res, 1, 31]
+
+        F_out = self.net(x_in, t_scalar)  # [n_res, 1, 31]
+        F_out = F_out.squeeze(1)[:, :self.chi_channels]  # [n_res, 4] — only chi dims
+
+        skip = self.c_skip(t)
+        out = self.c_out(t)
+
+        x1_pred = skip * xt + out * F_out
+        x1_pred = x1_pred * chi_mask
+        x1_pred = torch.remainder(x1_pred, 2 * math.pi)
+        return x1_pred
