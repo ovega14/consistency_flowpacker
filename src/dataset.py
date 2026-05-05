@@ -111,3 +111,59 @@ def _test_trajectory_dataset():
 
 
 if __name__ == '__main__': _test_trajectory_dataset()
+
+
+def collate_fn(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
+    """
+    Collates variable-length proteins into a flat batch with batch_id tracking.
+
+    Args:
+        batch (list): List of dicts coming from `TrajectoryDataset`
+    
+    Returns:
+        batch_dict (dict): Dictionary with all proteins concatenated along residue dim
+    """
+    x_t_list, x_t1_list, t_list = [], [], []
+    aa_list, atom_mask_list, chi_mask_list, bb_coords_list = [], [], [], []
+    batch_id_list = []
+ 
+    for i, sample in enumerate(batch):
+        n_res = sample['x_t'].shape[0]
+        x_t_list.append(sample['x_t'])
+        x_t1_list.append(sample['x_t1'])
+        t_list.append(sample['t'].expand(n_res, 1))  # t is scalar per sample, so expand
+        aa_list.append(sample['aa'])
+        atom_mask_list.append(sample['atom_mask'])
+        chi_mask_list.append(sample['chi_mask'])
+        bb_coords_list.append(sample['bb_coords'])
+        batch_id_list.append(torch.full((n_res,), i, dtype=torch.long))
+ 
+    return {
+        'x_t' : torch.cat(x_t_list, dim=0),  # [total_res, 4]
+        'x_t1' : torch.cat(x_t1_list, dim=0),  # [total_res, 4]
+        't' : torch.cat(t_list, dim=0),  # [total_res, 1]
+        'aa' : torch.cat(aa_list, dim=0),  # [total_res]
+        'atom_mask' : torch.cat(atom_mask_list, dim=0),  # [total_res, 14]
+        'chi_mask' : torch.cat(chi_mask_list, dim=0),  # [total_res, 4]
+        'bb_coords' : torch.cat(bb_coords_list, dim=0),  # [total_res, 4, 3]
+        'batch_id' : torch.cat(batch_id_list, dim=0),  # [total_res]
+    }
+
+
+def get_consistency_dataloader(
+    traj_dir: str,
+    batch_size: int = 4,
+    shuffle: bool = True,
+    num_workers: int = 0,
+    **kwargs
+) -> DataLoader:
+    """Creates a dataloader of trajectories for consistency distillation training."""
+    dataset = TrajectoryDataset(traj_dir, **kwargs)
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        collate_fn=collate_fn,
+        generator=torch.Generator(device=device)
+    )
