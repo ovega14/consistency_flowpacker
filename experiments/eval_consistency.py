@@ -57,8 +57,9 @@ def evaluate(args) -> None:
 
     # Split files
     random.seed(seed)
-    files = sorted(Path(traj_dir).glob('*.pt'))
-    print(f'Using {len(test_files)} proteins as test set ({len(files) - len(test_files)} train, {len(test_files)} test)')
+    test_files = sorted(Path(traj_dir).glob('*.pt'))
+    n_test = len(test_files)
+    print(f'Using {n_test} proteins as test set')
 
     # Count residues
     total_residues = sum(
