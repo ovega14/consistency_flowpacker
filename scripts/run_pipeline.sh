@@ -12,19 +12,32 @@ source ../venv/bin/activate
 export PATH="/u/octavio5/projects/consistency_flowpacker/venv/bin:$PATH"
 cd /u/octavio5/projects/consistency_flowpacker/scripts
 
-python3 train_distillation.py \
-    --traj_dir ../flowpacker/samples/traj-500/run_1 \
-    --model_type ConditionedMPConsistencyModel \
-    --epochs 200 \
-    --batch_size 64 \
-    --lr 1e-3 \
-    --ema_mu 0.99 \
-    --save_interval 20 \
-    --save_dir ../checkpoints/consistency
+# Training args
+MODEL_TYPE="ConditionedMPConsistencyModel"
+EPOCHS=5
+BATCH_SIZE=64
+LR=1e-3
+EMA_MU=0.99
+SCHEDULER="ShadowScheduler"
 
-python3 eval_consistency.py \
-    --traj_dir ../flowpacker/samples/traj-500/run_1 \
-    --ckpt_path ../checkpoints/consistency/consistency_ep200.pt \
-    --model_type ConditionedMPConsistencyModel \
-    --n_test 100 \
-    --seed 42
+# Sampling args
+SAVE_DIR="../checkpoints/${MODEL_TYPE}_ep${EPOCHS}_lr${LR}_bs${BATCH_SIZE}"
+SEED=42
+
+python3 ../experiments/train_distillation.py \
+    --traj_dir ../flowpacker/samples/traj-train/run_1 \
+    --model_type $MODEL_TYPE \
+    --epochs $EPOCHS \
+    --batch_size $BATCH_SIZE \
+    --lr $LR \
+    --ema_mu $EMA_MU \
+    --scheduler $SCHEDULER \
+    --save_interval $EPOCHS \
+    --save_dir $SAVE_DIR
+
+python3 ../experiments/eval_consistency.py \
+    --traj_dir ../flowpacker/samples/traj-test/run_1 \
+    --ckpt_path ${SAVE_DIR}/consistency_ep${EPOCHS}.pt \
+    --model_type $MODEL_TYPE \
+    --save_dir $SAVE_DIR \
+    --seed $SEED

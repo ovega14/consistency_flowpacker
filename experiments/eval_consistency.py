@@ -3,8 +3,11 @@ import math
 import random
 import torch
 import numpy as np
+
 import argparse
+import json
 from pathlib import Path
+from datetime import datetime
 
 import sys
 sys.path.insert(0, '../src/')
@@ -12,17 +15,38 @@ from fabrics import make_consistency_models
 from util import get_aa_onehot_and_dihedral, wrap
 
 
-def evaluate(
-    traj_dir: str = '../flowpacker/samples/traj-500/run_1',
-    ckpt_path: str = '../checkpoints/consistency/consistency_ep100.pt',
-    model_type: str = 'ConditionedMPConsistencyModel',
-    config_path: str = '/u/octavio5/projects/consistency_flowpacker/flowpacker/config/training/vf.yaml',
-    n_test: int = 100,
-    seed: int = 42,
-) -> None:
-    """Docs TODO"""
+def save_results(args, results: dict) -> None:
+    """Saves evaluation results and run config to a JSON file."""
+    record = {
+        'timestamp': datetime.now().isoformat(),
+        'config': vars(args),
+        'results': results,
+    }
+    out_path = Path(args.save_dir) / 'results.json'
+    
+    if out_path.exists():
+        with open(out_path) as f:
+            all_results = json.load(f)
+    else:
+        all_results = []
+    
+    all_results.append(record)
+    with open(out_path, 'w') as f:
+        json.dump(all_results, f, indent=2)
+    print(f'Results saved to {out_path}')
+
+
+def evaluate(args) -> None:
+    """Evaluates a pre-trained Riemannian consistency model."""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device: {device}')
+
+    traj_dir = args.traj_dir
+    ckpt_path = args.ckpt_path
+    save_dir = args.save_dir
+    model_type = args.model_type
+    config_path = args.config_path
+    seed = args.seed
 
     # Load model
     online_model, _ = make_consistency_models(model_type, device, config_path)
@@ -34,8 +58,6 @@ def evaluate(
     # Split files
     random.seed(seed)
     files = sorted(Path(traj_dir).glob('*.pt'))
-    random.shuffle(files)
-    test_files = files[:n_test]
     print(f'Using {len(test_files)} proteins as test set ({len(files) - len(test_files)} train, {len(test_files)} test)')
 
     # Count residues
@@ -117,19 +139,38 @@ def evaluate(
             print(f'  chi{i+1:<5} {np.mean(per_chi_mae[i]):<12.2f} {np.mean(per_chi_acc[i]):<16.2f} {per_chi_n[i]}')
     print('=' * 55)
 
+    results = {
+        'overall_mae_deg': float(np.mean(all_mae)),
+        'overall_acc_pct': float(np.mean(all_acc)),
+        'per_chi': {
+            f'chi{i+1}': {
+                'mae_deg': float(np.mean(per_chi_mae[i])),
+                'acc_pct': float(np.mean(per_chi_acc[i])),
+                'n_valid': per_chi_n[i],
+            } for i in range(4) if per_chi_n[i] > 0
+        }
+    }
+    save_results(args, results)
 
-if __name__ == '__main__':
+
+def main():
     parser = argparse.ArgumentParser()
+
     parser.add_argument('--traj_dir', type=str,
                         default='../flowpacker/samples/traj-500/run_1')
     parser.add_argument('--ckpt_path', type=str,
                         default='../checkpoints/consistency/consistency_ep100.pt')
+    parser.add_argument('--save_dir', type=str,
+                        default='../checkpoints/consistency')
     parser.add_argument('--model_type', type=str,
                         default='ConditionedMPConsistencyModel')
     parser.add_argument('--config_path', type=str,
                         default='/u/octavio5/projects/consistency_flowpacker/flowpacker/config/training/vf.yaml')
-    parser.add_argument('--n_test', type=int, default=100)
     parser.add_argument('--seed', type=int, default=42)
-    args = parser.parse_args()
 
-    evaluate(**vars(args))
+    args = parser.parse_args()
+    evaluate(args)
+
+
+if __name__ == '__main__':
+    main()
