@@ -13,9 +13,10 @@ export PATH="/u/octavio5/projects/consistency_flowpacker/venv/bin:$PATH"
 cd /u/octavio5/projects/consistency_flowpacker/scripts
 
 # Training args
-MODEL_TYPE="MPConsistencyModel"
+#MODEL_TYPE="MPConsistencyModel"
 #MODEL_TYPE="ConditionedMPConsistencyModel"
-EPOCHS=1000
+MODEL_TYPE="ConditionedMPConsistencyModelV2"
+EPOCHS=500
 BATCH_SIZE=64
 LR=1e-3
 EMA_MU=0.99

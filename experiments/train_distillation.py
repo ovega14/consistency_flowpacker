@@ -108,7 +108,7 @@ def main():
                         default='../flowpacker/checkpoints/bc40.pth')
     parser.add_argument('--model_type', type=str,
                         default='ConditionedMPConsistencyModel',
-                        choices=['EquiformerConsistencyModel', 'MPConsistencyModel', 'ConditionedMPConsistencyModel'])
+                        choices=['EquiformerConsistencyModel', 'MPConsistencyModel', 'ConditionedMPConsistencyModel', 'ConditionedMPConsistencyModelV2'])
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--lr', type=float, default=1e-3)

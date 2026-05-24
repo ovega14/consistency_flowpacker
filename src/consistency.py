@@ -23,7 +23,8 @@ from training.networks import MPModel
 __all__ = [
     'EquiformerConsistencyModel',
     'MPConsistencyModel',
-    'ConditionedMPConsistencyModel'
+    'ConditionedMPConsistencyModel',
+    'ConditionedMPConsistencyModelV2'
 ]
 
 
@@ -322,6 +323,89 @@ class ConditionedMPConsistencyModel(MPConsistencyModel):
 
         F_out = self.net(x_in, t_scalar)  # [n_res, 1, 31]
         F_out = F_out.squeeze(1)[:, :self.chi_channels]  # [n_res, 4] — only chi dims
+
+        skip = self.c_skip(t)
+        out = self.c_out(t)
+
+        x1_pred = skip * xt + out * F_out
+        x1_pred = x1_pred * chi_mask
+        x1_pred = torch.remainder(x1_pred, 2 * math.pi)
+        return x1_pred
+
+
+class ConditionedMPConsistencyModelV2(torch.nn.Module):
+    """
+    Protein-conditioned consistency model with one round of neighbor aggregation.
+    
+    Extends ConditionedMPConsistencyModel by adding a single message passing
+    step before the MLP, allowing each residue to see its k-nearest neighbors'
+    amino acid types and backbone geometry. This provides the local structural
+    context that the original MLP lacked.
+
+    Args:
+        chi_channels (int): Number of chi angle channels. Default: 4
+        aa_channels (int): Number of amino acid classes. Default: 21
+        dihedral_channels (int): Number of dihedral sin/cos features. Default: 6
+        k (int): Number of nearest neighbors for message passing. Default: 16
+        sigma_min (float): Scale of skip connection and output weights. Default: 0.002
+    """
+    def __init__(self,
+        chi_channels: int = 4,
+        aa_channels: int = 21,
+        dihedral_channels: int = 6,
+        k: int = 16,
+        sigma_min: float = 0.002,
+    ):
+        super().__init__()
+        self.sigma_min = sigma_min
+        self.k = k
+        self.chi_channels = chi_channels
+
+        # After neighbor aggregation, input doubles: own features + neighbor mean
+        single_feat = chi_channels + aa_channels + dihedral_channels  # 31
+        in_channels = single_feat * 2  # 62
+        self.net = MPModel(in_channels=in_channels)
+
+    def c_skip(self, t: torch.Tensor) -> torch.Tensor:
+        return self.sigma_min**2 / ((t - 1)**2 + self.sigma_min**2)
+
+    def c_out(self, t: torch.Tensor) -> torch.Tensor:
+        return (self.sigma_min * (1 - t)) / (self.sigma_min**2 + (t - 1)**2)**0.5
+
+    def forward(self, xt, t, batch_dict):
+        chi_mask = batch_dict['chi_mask']
+        aa_onehot = batch_dict['aa_onehot']        # [n_res, 21]
+        bb_dihedral = batch_dict['bb_dihedral']    # [n_res, 3]
+        bb_coords = batch_dict['bb_coords']        # [n_res, 4, 3]
+        batch_id = batch_dict['batch_id']
+        t_scalar = t[:, 0]
+
+        # Build node features
+        dihedral_sincos = torch.cat([
+            torch.sin(bb_dihedral), torch.cos(bb_dihedral)
+        ], dim=-1)  # [n_res, 6]
+        node_feat = torch.cat([xt, aa_onehot, dihedral_sincos], dim=-1)  # [n_res, 31]
+
+        # Build kNN graph from CA coordinates
+        ca_coords = bb_coords[:, 1]  # [n_res, 3]
+        edge_index = knn_graph(ca_coords, k=self.k, batch=batch_id)  # [2, n_edges]
+
+        # One round of neighbor aggregation via mean pooling
+        src, dst = edge_index
+        neighbor_sum = torch.zeros_like(node_feat).scatter_add(
+            0, dst.unsqueeze(-1).expand_as(node_feat[src]), node_feat[src]
+        )
+        neighbor_count = torch.zeros(node_feat.shape[0], 1, device=node_feat.device).scatter_add(
+            0, dst.unsqueeze(-1), torch.ones(src.shape[0], 1, device=node_feat.device)
+        ).clamp(min=1)
+        neighbor_feat = neighbor_sum / neighbor_count  # [n_res, 31]
+
+        # Concatenate own features with neighbor mean
+        x_in = torch.cat([node_feat, neighbor_feat], dim=-1)  # [n_res, 62]
+        x_in = x_in.unsqueeze(1)  # [n_res, 1, 62]
+
+        F_out = self.net(x_in, t_scalar)  # [n_res, 1, 62]
+        F_out = F_out.squeeze(1)[:, :self.chi_channels]  # [n_res, 4]
 
         skip = self.c_skip(t)
         out = self.c_out(t)
